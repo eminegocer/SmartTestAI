@@ -1,26 +1,4 @@
-"""
-Snyk Code Runner Modülü
-
-Bu modül, Snyk Code CLI kullanarak kod analizi yapar ve sonuçları
-standart metrik formatına normalize eder.
-
-Proje Yapısı İçindeki Yeri:
-- backend/metric_runner.py: Bu dosya
-- backend/metrics/snyk_metrics.py: Snyk metrik normalizasyonu
-- results/: Tarama sonuçları kaydedilir
-
-Ana Fonksiyonlar:
-- run_snyk_code_scan(): Snyk CLI ile tarama yapar
-- save_scan_result(): Sonuçları JSON formatında kaydeder
-- run_code_scan_and_save(): Tam tarama ve kaydetme işlemi
-
-Kullanım:
-    cd backend
-    python metric_runner.py
-    veya
-    from metric_runner import run_code_scan_and_save
-    result = run_code_scan_and_save("flask_demo")
-"""
+# backend/metric_runner.py
 
 import json
 import subprocess
@@ -28,131 +6,11 @@ import os
 from datetime import datetime
 from pathlib import Path
 from metrics.snyk_metrics import SnykMetrics
-from metrics.advanced_metrics import AdvancedMetricsCalculator
 
-# Snyk CLI yolu (Windows için)
-# Not: Bu yol sistemden sisteme değişebilir
 SNYK_PATH = r"C:\Users\gocer\AppData\Roaming\npm\snyk.cmd"
-
-# Sonuç dosyalarının kaydedileceği klasör
 RESULTS_DIR = "../results"
 
-def extract_issues_from_snyk_result(raw_data: dict) -> list:
-    """
-    Snyk SARIF formatından issue'ları çıkarır
-    
-    Args:
-        raw_data: Snyk'ten gelen ham JSON çıktısı
-    
-    Returns:
-        list: Issue listesi (dict formatında)
-    """
-    issues = []
-    if "runs" in raw_data and len(raw_data.get("runs", [])) > 0:
-        results = raw_data["runs"][0].get("results", [])
-        for result in results:
-            locations = result.get("locations", [])
-            if locations:
-                location = locations[0].get("physicalLocation", {})
-                artifact_location = location.get("artifactLocation", {})
-                region = location.get("region", {})
-                
-                issues.append({
-                    "file": artifact_location.get("uri", ""),
-                    "line": region.get("startLine", -1),
-                    "type": result.get("ruleId", ""),
-                    "severity": result.get("level", "error"),
-                    "description": result.get("message", {}).get("text", "")
-                })
-    return issues
-
-def save_advanced_metrics_result(
-    tool_name: str,
-    project_name: str,
-    basic_result,
-    advanced_result,
-    ground_truth: list = None
-) -> str:
-    """
-    Gelişmiş metrik sonuçlarını results/ klasörüne kaydeder
-    
-    Args:
-        tool_name: Araç adı ("snyk_code")
-        project_name: Proje adı
-        basic_result: Temel metrik sonucu (MetricResult)
-        advanced_result: Gelişmiş metrik sonucu (AdvancedMetricResult)
-        ground_truth: Ground truth listesi (opsiyonel)
-    
-    Returns:
-        str: Kaydedilen dosyanın yolu
-    """
-    results_path = Path(RESULTS_DIR)
-    results_path.mkdir(parents=True, exist_ok=True)
-    
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    filename = f"{tool_name}_advanced_metrics_{project_name}_{timestamp}.json"
-    file_path = results_path / filename
-    
-    result_dict = {
-        "tool_name": tool_name,
-        "project": project_name,
-        "timestamp": timestamp,
-        "basic_metrics": {
-            "tool_name": basic_result.tool_name,
-            "critical": basic_result.critical,
-            "high": basic_result.high,
-            "medium": basic_result.medium,
-            "low": basic_result.low,
-            "total_issues": basic_result.total_issues,
-            "scan_duration": basic_result.scan_duration
-        },
-        "advanced_metrics": {
-            "defect_detection_accuracy": {
-                "precision": advanced_result.precision,
-                "recall": advanced_result.recall,
-                "f1_score": advanced_result.f1_score,
-                "true_positives": advanced_result.true_positives,
-                "false_positives": advanced_result.false_positives,
-                "false_negatives": advanced_result.false_negatives,
-                "true_negatives": advanced_result.true_negatives
-            },
-            "code_coverage": {
-                "code_coverage_percent": advanced_result.code_coverage,
-                "files_analyzed": advanced_result.files_analyzed,
-                "lines_analyzed": advanced_result.lines_analyzed
-            },
-            "false_positive_rate": advanced_result.false_positive_rate,
-            "operational_efficiency": {
-                "average_scan_time": advanced_result.average_scan_time,
-                "cpu_usage_percent": advanced_result.cpu_usage_percent,
-                "memory_usage_mb": advanced_result.memory_usage_mb
-            },
-            "code_quality_score": advanced_result.code_quality_score
-        },
-        "ground_truth_count": len(ground_truth) if ground_truth else 0
-    }
-    
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(result_dict, f, indent=2, ensure_ascii=False)
-    
-    return str(file_path)
-
 def run_snyk_code_scan(target_path: str) -> dict:
-    """
-    Snyk Code CLI kullanarak kod analizi yapar
-    
-    Args:
-        target_path: Taranacak proje klasörünün yolu
-    
-    Returns:
-        dict: Snyk'ten gelen JSON formatındaki ham sonuç
-        (SARIF formatı veya eski vulnerabilities formatı)
-    
-    Raises:
-        RuntimeError: Snyk CLI hatası veya tarama başarısız olduğunda
-    """
-    # Snyk CLI komutunu çalıştır
-    # --json flag'i ile JSON formatında çıktı al
     result = subprocess.run(
         [SNYK_PATH, "code", "test", target_path, "--json"],
         stdout=subprocess.PIPE,
@@ -160,11 +18,9 @@ def run_snyk_code_scan(target_path: str) -> dict:
         text=True
     )
 
-    # Hata kontrolü
     if result.returncode != 0 and not result.stdout:
         raise RuntimeError(result.stderr)
 
-    # JSON çıktısını parse et
     return json.loads(result.stdout)
 
 def save_scan_result(raw_output: dict, tool_name: str, project_name: str) -> str:
@@ -192,7 +48,7 @@ def save_scan_result(raw_output: dict, tool_name: str, project_name: str) -> str
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(raw_output, f, indent=2, ensure_ascii=False)
     
-    print(f"Tarama sonucu kaydedildi: {file_path}")
+    print(f"✅ Tarama sonucu kaydedildi: {file_path}")
     return str(file_path)
 
 def run_code_scan_and_save(project_name: str) -> dict:
@@ -230,30 +86,9 @@ def run_code_scan_and_save(project_name: str) -> dict:
         # Sonucu kaydet
         saved_path = save_scan_result(raw_output, "snyk_code", project_name)
         
-        # Temel metrikleri hesapla
+        # Metrik hesapla
         metric = SnykMetrics()
         metric_result = metric.calculate(raw_output)
-        
-        # Issue'ları çıkar (advanced metrics için)
-        detected_issues = extract_issues_from_snyk_result(raw_output)
-        
-        # Gelişmiş metrikleri hesapla
-        calculator = AdvancedMetricsCalculator()
-        advanced_result = calculator.calculate_all_advanced_metrics(
-            raw_data=raw_output,
-            detected_issues=detected_issues,
-            ground_truth=None,  # Ground truth opsiyonel
-            scan_duration=metric_result.scan_duration
-        )
-        
-        # Advanced metrics sonucunu kaydet
-        advanced_file_path = save_advanced_metrics_result(
-            "snyk_code",
-            project_name,
-            metric_result,
-            advanced_result,
-            ground_truth=None
-        )
         
         # MetricResult'ı dict'e çevir
         metric_dict = {
@@ -266,38 +101,11 @@ def run_code_scan_and_save(project_name: str) -> dict:
             "scan_duration": metric_result.scan_duration
         }
         
-        # Advanced metrics'i dict'e çevir
-        advanced_metrics_dict = {
-            "defect_detection_accuracy": {
-                "precision": advanced_result.precision,
-                "recall": advanced_result.recall,
-                "f1_score": advanced_result.f1_score,
-                "true_positives": advanced_result.true_positives,
-                "false_positives": advanced_result.false_positives,
-                "false_negatives": advanced_result.false_negatives,
-                "true_negatives": advanced_result.true_negatives
-            },
-            "code_coverage": {
-                "code_coverage_percent": advanced_result.code_coverage,
-                "files_analyzed": advanced_result.files_analyzed,
-                "lines_analyzed": advanced_result.lines_analyzed
-            },
-            "false_positive_rate": advanced_result.false_positive_rate,
-            "operational_efficiency": {
-                "average_scan_time": advanced_result.average_scan_time,
-                "cpu_usage_percent": advanced_result.cpu_usage_percent,
-                "memory_usage_mb": advanced_result.memory_usage_mb
-            },
-            "code_quality_score": advanced_result.code_quality_score
-        }
-        
         return {
             "success": True,
             "project": project_name,
             "file_path": saved_path,
-            "advanced_metrics_file_path": advanced_file_path,
-            "metric_result": metric_dict,
-            "advanced_metrics": advanced_metrics_dict
+            "metric_result": metric_dict
         }
         
     except Exception as e:
