@@ -114,7 +114,9 @@ def scan_code():
         "message": "code scan completed",
         "project": result["project"],
         "file_path": result["file_path"],
-        "metrics": result["metric_result"]
+        "advanced_metrics_file_path": result.get("advanced_metrics_file_path"),
+        "metrics": result["metric_result"],
+        "advanced_metrics": result.get("advanced_metrics", {})
     }), 200
 
 
@@ -262,7 +264,9 @@ def scan_deepsource():
         "message": "deepsource scan completed",
         "project": result["project"],
         "file_path": result["file_path"],
-        "metrics": result["metric_result"]
+        "advanced_metrics_file_path": result.get("advanced_metrics_file_path"),
+        "metrics": result["metric_result"],
+        "advanced_metrics": result.get("advanced_metrics", {})
     }), 200
 
 

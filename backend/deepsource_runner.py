@@ -39,10 +39,122 @@ import requests
 from datetime import datetime
 from pathlib import Path
 from metrics.deepsource_metrics import DeepSourceMetrics
+from metrics.advanced_metrics import AdvancedMetricsCalculator
 
 # Sonuç dosyalarının kaydedileceği klasör
 RESULTS_DIR = "../results"
 
+
+def extract_issues_from_deepsource_result(raw_data: dict) -> list:
+    """
+    DeepSource GraphQL formatından veya mock formatından issue'ları çıkarır
+    
+    Args:
+        raw_data: DeepSource'tan gelen ham JSON çıktısı (GraphQL veya mock format)
+    
+    Returns:
+        list: Issue listesi (dict formatında)
+    """
+    issues = []
+    
+    # GraphQL formatı (gerçek API)
+    if "data" in raw_data and "repository" in raw_data["data"]:
+        repo_data = raw_data["data"]["repository"]
+        if "issues" in repo_data and "edges" in repo_data["issues"]:
+            for edge in repo_data["issues"]["edges"]:
+                if "node" in edge and "issue" in edge["node"]:
+                    issue = edge["node"]["issue"]
+                    issues.append({
+                        "file": "unknown",  # DeepSource API'sinde dosya bilgisi yok
+                        "line": -1,
+                        "type": issue.get("shortcode", ""),
+                        "severity": issue.get("severity", ""),
+                        "description": issue.get("title", "")
+                    })
+    
+    # Mock format (test için)
+    elif "issues" in raw_data:
+        for issue in raw_data["issues"]:
+            issues.append({
+                "file": issue.get("file", "unknown"),
+                "line": issue.get("line", -1),
+                "type": issue.get("issue_code", ""),
+                "severity": issue.get("severity", "").upper(),  # MAJOR, MINOR, etc.
+                "description": issue.get("message", "")
+            })
+    
+    return issues
+
+def save_advanced_metrics_result(
+    tool_name: str,
+    project_name: str,
+    basic_result,
+    advanced_result,
+    ground_truth: list = None
+) -> str:
+    """
+    Gelişmiş metrik sonuçlarını results/ klasörüne kaydeder
+    
+    Args:
+        tool_name: Araç adı ("deepsource")
+        project_name: Proje adı
+        basic_result: Temel metrik sonucu (MetricResult)
+        advanced_result: Gelişmiş metrik sonucu (AdvancedMetricResult)
+        ground_truth: Ground truth listesi (opsiyonel)
+    
+    Returns:
+        str: Kaydedilen dosyanın yolu
+    """
+    results_path = Path(RESULTS_DIR)
+    results_path.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    filename = f"{tool_name}_advanced_metrics_{project_name}_{timestamp}.json"
+    file_path = results_path / filename
+    
+    result_dict = {
+        "tool_name": tool_name,
+        "project": project_name,
+        "timestamp": timestamp,
+        "basic_metrics": {
+            "tool_name": basic_result.tool_name,
+            "critical": basic_result.critical,
+            "high": basic_result.high,
+            "medium": basic_result.medium,
+            "low": basic_result.low,
+            "total_issues": basic_result.total_issues,
+            "scan_duration": basic_result.scan_duration
+        },
+        "advanced_metrics": {
+            "defect_detection_accuracy": {
+                "precision": advanced_result.precision,
+                "recall": advanced_result.recall,
+                "f1_score": advanced_result.f1_score,
+                "true_positives": advanced_result.true_positives,
+                "false_positives": advanced_result.false_positives,
+                "false_negatives": advanced_result.false_negatives,
+                "true_negatives": advanced_result.true_negatives
+            },
+            "code_coverage": {
+                "code_coverage_percent": advanced_result.code_coverage,
+                "files_analyzed": advanced_result.files_analyzed,
+                "lines_analyzed": advanced_result.lines_analyzed
+            },
+            "false_positive_rate": advanced_result.false_positive_rate,
+            "operational_efficiency": {
+                "average_scan_time": advanced_result.average_scan_time,
+                "cpu_usage_percent": advanced_result.cpu_usage_percent,
+                "memory_usage_mb": advanced_result.memory_usage_mb
+            },
+            "code_quality_score": advanced_result.code_quality_score
+        },
+        "ground_truth_count": len(ground_truth) if ground_truth else 0
+    }
+    
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(result_dict, f, indent=2, ensure_ascii=False)
+    
+    return str(file_path)
 
 def _get_mock_deepsource_output(target_path: str) -> dict:
     """
@@ -278,9 +390,30 @@ def run_deepsource_scan_and_save(project_name: str) -> dict:
         # Sonucu kaydet
         saved_path = save_scan_result(raw_output, "deepsource", project_name)
         
-        # Metrik hesapla
+        # Temel metrikleri hesapla
         metric = DeepSourceMetrics()
         metric_result = metric.calculate(raw_output)
+        
+        # Issue'ları çıkar (advanced metrics için)
+        detected_issues = extract_issues_from_deepsource_result(raw_output)
+        
+        # Gelişmiş metrikleri hesapla
+        calculator = AdvancedMetricsCalculator()
+        advanced_result = calculator.calculate_all_advanced_metrics(
+            raw_data=raw_output,
+            detected_issues=detected_issues,
+            ground_truth=None,  # Ground truth opsiyonel
+            scan_duration=metric_result.scan_duration
+        )
+        
+        # Advanced metrics sonucunu kaydet
+        advanced_file_path = save_advanced_metrics_result(
+            "deepsource",
+            project_name,
+            metric_result,
+            advanced_result,
+            ground_truth=None
+        )
         
         # MetricResult'ı dict'e çevir
         metric_dict = {
@@ -293,11 +426,38 @@ def run_deepsource_scan_and_save(project_name: str) -> dict:
             "scan_duration": metric_result.scan_duration
         }
         
+        # Advanced metrics'i dict'e çevir
+        advanced_metrics_dict = {
+            "defect_detection_accuracy": {
+                "precision": advanced_result.precision,
+                "recall": advanced_result.recall,
+                "f1_score": advanced_result.f1_score,
+                "true_positives": advanced_result.true_positives,
+                "false_positives": advanced_result.false_positives,
+                "false_negatives": advanced_result.false_negatives,
+                "true_negatives": advanced_result.true_negatives
+            },
+            "code_coverage": {
+                "code_coverage_percent": advanced_result.code_coverage,
+                "files_analyzed": advanced_result.files_analyzed,
+                "lines_analyzed": advanced_result.lines_analyzed
+            },
+            "false_positive_rate": advanced_result.false_positive_rate,
+            "operational_efficiency": {
+                "average_scan_time": advanced_result.average_scan_time,
+                "cpu_usage_percent": advanced_result.cpu_usage_percent,
+                "memory_usage_mb": advanced_result.memory_usage_mb
+            },
+            "code_quality_score": advanced_result.code_quality_score
+        }
+        
         return {
             "success": True,
             "project": project_name,
             "file_path": saved_path,
-            "metric_result": metric_dict
+            "advanced_metrics_file_path": advanced_file_path,
+            "metric_result": metric_dict,
+            "advanced_metrics": advanced_metrics_dict
         }
         
     except Exception as e:
